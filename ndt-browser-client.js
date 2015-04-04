@@ -58,8 +58,8 @@ function make_ndt_msg(type, msg) {
 	NDT_MSG[0] = type;
 	NDT_MSG[1] = (message_body.length >> 8) & 0xFF;
 	NDT_MSG[2] = message_body.length & 0xFF;
-	for (i = 3; i < message_body.length; i++) {
-		NDT_MSG[i] = message_body.charCodeAt(i);
+	for (i = 0; i < message_body.length; i++) {
+		NDT_MSG[i + 3] = message_body.charCodeAt(i);
 	}
 	return NDT_MSG;
 }
@@ -130,7 +130,7 @@ function ndt_s2c_test(sock) {
 	return function (type, body) {
 		var TEST_DURATION_SECONDS,
 			THROUGHPUT_VALUE;
-		logMessage("CALLED S2C with " + type + " " + msg_name[type] + " " + body.msg + " in state " + state);
+		logMessage("CALLED S2C with " + type + " " + msg_name[type] + " in state " + state);
 		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
 			server_port = Number(body.msg);
 			// bind a connection to that port
