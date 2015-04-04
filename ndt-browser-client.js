@@ -25,7 +25,7 @@ var COMM_FAILURE = 0,
 
 // A helper function that prints an error message and crashes things.
 function die(a1, a2, a3, a4) {
-	console.log('DIED: '.concat(Array.prototype.slice.call(arguments)));
+	logMessage('DIED: '.concat(Array.prototype.slice.call(arguments)));
 }
 
 // Makes a login message suitable for sending to the server.  The login
@@ -82,7 +82,7 @@ function ndt_meta_test(sock) {
 			return "KEEP GOING";
 		}
 		if (state === "WAIT_FOR_TEST_FINALIZE" && type === TEST_FINALIZE) {
-			console.log("ndt_meta_test is done");
+			logMessage("ndt_meta_test is done");
 			return "DONE";
 		}
 		die("Bad state and message combo for META test: ", state, type, body.msg);
@@ -102,7 +102,7 @@ function ndt_s2c_test(sock) {
 
 	// Function called on the opening of the s2c socket.
 	function on_open() {
-		console.log("OPENED S2C SUCCESFULLY!");
+		logMessage("OPENED S2C SUCCESFULLY!");
 		test_start = Date.now() / 1000;
 	}
 
@@ -130,7 +130,7 @@ function ndt_s2c_test(sock) {
 	return function (type, body) {
 		var TEST_DURATION_SECONDS,
 			THROUGHPUT_VALUE;
-		console.log("CALLED S2C with %d (%s) %s in state %s", type, msg_name[type], body.msg, state);
+		logMessage("CALLED S2C with " + type + " " + msg_name[type] + " " + body.msg + " in state " + state);
 		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
 			server_port = Number(body.msg);
 			// bind a connection to that port
@@ -159,11 +159,11 @@ function ndt_s2c_test(sock) {
 			return "KEEP GOING";
 		}
 		if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === TEST_MSG) {
-			console.log("Got results: ", body.msg);
+			logMessage("Got results: " +  body.msg);
 			return "KEEP GOING";
 		}
 		if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === TEST_FINALIZE) {
-			console.log("Test is over! ", body.msg);
+			logMessage("Test is over! " +  body.msg);
 			return "DONE";
 		}
 		die("S2C: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
@@ -199,7 +199,7 @@ function ndt_c2s_test() {
 	}
 
 	return function (type, body) {
-		console.log("C2S type %d (%s)", type, msg_name[type], body);
+		logMessage("CALLED C2S with " + type + " " + msg_name[type] + " " + body.msg + " in state " + state);
 		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
 			server_port = Number(body.msg);
 			test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", "c2s");
@@ -219,7 +219,7 @@ function ndt_c2s_test() {
 		}
 		if (state === "WAIT_FOR_TEST_FINALIZE" && type === TEST_FINALIZE) {
 			state = "DONE";
-			console.log("C2S rate: ", 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start));
+			logMessage("C2S rate: " + 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start));
 			return "DONE";
 		}
 		die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
@@ -238,7 +238,7 @@ function ndt_coordinator(url) {
 
 
 	sock.onopen = function() {
-		console.log("OPENED CONNECTION");
+		logMessage("OPENED CONNECTION");
 		// Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
 		// open server sockets, which makes those tests impossible, because they
 		// require the server to open a connection to a port on the client.
@@ -256,16 +256,16 @@ function ndt_coordinator(url) {
 			body = JSON.parse(message[3]),
 			i,
 			tests;
-		console.log("type = %d (%s) body = '%s'", type, msg_name[type], body.msg);
+		logMessage("type = " + type + " (" + msg_name[type] + ") body = '" + body.msg + "'");
 		if (active_test === undefined && tests_to_run.length > 0) {
 			active_test = tests_to_run.pop();
 		}
 		if (active_test !== undefined) {
 			// Pass the message to the sub-test
-			console.log("Calling a subtest");
+			logMessage("Calling a subtest");
 			if (active_test(type, body) === "DONE") {
 				active_test = undefined;
-				console.log("Subtest complete");
+				logMessage("Subtest complete");
 			}
 			return;
 		}
@@ -279,7 +279,7 @@ function ndt_coordinator(url) {
 				} else if (body.msg === "9977") {	 // Test failed
 					die("server terminated test with SRV_QUEUE 9977");
 				}
-				console.log("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
+				logMessage("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
 			} else if (type === MSG_LOGIN) {
 				if (body.msg[0] !== "v") { die("Bad msg '%s'", body.msg); }
 				state = "WAIT_FOR_TEST_IDS";
@@ -301,10 +301,10 @@ function ndt_coordinator(url) {
 			}
 			state = "WAIT_FOR_MSG_RESULTS";
 		} else if (state === "WAIT_FOR_MSG_RESULTS" && type === MSG_RESULTS) {
-			console.log(body);
+			logMessage(body);
 		} else if (state === "WAIT_FOR_MSG_RESULTS" && type === MSG_LOGOUT) {
 			sock.close();
-			console.log("TESTS FINISHED SUCCESSFULLY!");
+			logMessage("TESTS FINISHED SUCCESSFULLY!");
 		} else {
 			die("Didn't know what to do with message type %d in state %s", type, state);
 		}
@@ -331,5 +331,13 @@ function parseNdtMsg(buf) {
 	msg = msg.replace(/^[^{]+/, '');
 	resp.push(msg);
 	return resp;
+
+}
+
+function logMessage(msg) {
+
+	var debugDiv = document.getElementById('debug');
+	debugDiv.innerHTML += '<br/>&raquo; ' + msg;
+	console.log(msg);
 
 }
