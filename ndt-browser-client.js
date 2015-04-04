@@ -59,8 +59,8 @@ function make_ndt_msg(type, msg) {
     NDT_MSG[0] = type;
     NDT_MSG[1] = (message_body.length >> 8) & 0xFF;
     NDT_MSG[2] = message_body.length & 0xFF;
-    for (i = 0; i < message_body.length; i += 1) {
-        NDT_MSG[i + 3] = message_body.charCodeAt(i);
+    for (i = 3; i < message_body.length; i++) {
+        NDT_MSG[i] = message_body.charCodeAt(i);
     }
     return NDT_MSG;
 }
