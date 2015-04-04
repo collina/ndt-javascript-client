@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+	<meta charset="utf-8"/>
+	<title>NDT JS test</title>
+	<script src="./ndt-browser-client.js"></script>
+</head>
+
+<body>
+
+<button type="button" id="start_test">Start Test</button>
+<div id="results"></div>
+
+<script>
+    var server = "ndt.iupui.mlab2.nuq0t.measurement-lab.org";
+    var server_port = "7000";
+	var url = "ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement";
+
+	document.getElementById('start_test').addEventListener('click', function() {
+		ndt_coordinator(url);
+	});
+</script>
+
+</body>
+
+</html>

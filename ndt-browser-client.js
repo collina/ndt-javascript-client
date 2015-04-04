@@ -21,20 +21,12 @@ var COMM_FAILURE = 0,
     MSG_LOGOUT = 9,
     MSG_WAITING = 10,
     MSG_EXTENDED_LOGIN = 11,
-    msg_name = ["COMM_FAILURE", "SRV_QUEUE", "MSG_LOGIN", "TEST_PREPARE", "TEST_START", "TEST_MSG", "TEST_FINALIZE", "MSG_ERROR", "MSG_RESULTS", "MSG_LOGOUT", "MSG_WAITING", "MSG_EXTENDED_LOGIN"],
-    WebSocket = require('ws'),
-    server = process.argv[2],
-    port = Number(process.argv[3]),
-    test_url = "ws://" + server + ":" + port + "/ndt_after_user_privacy_agreement",
-    ws = new WebSocket(test_url, {protocol: 'ndt'});
-
-console.log("Running NDT test to " + server + " on port " + port);
+    msg_name = ["COMM_FAILURE", "SRV_QUEUE", "MSG_LOGIN", "TEST_PREPARE", "TEST_START", "TEST_MSG", "TEST_FINALIZE", "MSG_ERROR", "MSG_RESULTS", "MSG_LOGOUT", "MSG_WAITING", "MSG_EXTENDED_LOGIN"]
 
 // A helper function that prints an error message and crashes things.
 function die(a1, a2, a3, a4) {
-    console.log.apply(
-        console.log, ["DIED: "].concat(Array.prototype.slice.call(arguments)));
-    process.exit(1);
+    console.log('DIED: '.concat(Array.prototype.slice.call(arguments)));
+    throw new Error('Exiting after fatal error.');
 }
 
 // Makes a login message suitable for sending to the server.  The login
@@ -116,7 +108,8 @@ function ndt_s2c_test(sock) {
     }
 
     // Function called for each message received on the s2c socket.
-    function on_msg(message) {
+    function on_msg(e) {
+		var message = parseNdtMsg(e.data);
         var hdr_size;
         if (message.length < 126) {
             hdr_size = 2;
@@ -129,8 +122,9 @@ function ndt_s2c_test(sock) {
     }
 
     // If there is an error on the s2c socket, then die.
-    function on_error(error, num) {
-        die(error, num);
+    function on_error(e) {
+		var err = parseNdtMsg(e.data);
+        die(err);
     }
 
     // The closure that processes messages on the control socket for the s2c test.
@@ -141,10 +135,10 @@ function ndt_s2c_test(sock) {
         if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
             server_port = Number(body.msg);
             // bind a connection to that port
-            test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", {protocol: "s2c"});
-            test_connection.on('open', on_open);
-            test_connection.on('message', on_msg);
-            test_connection.on('error', on_error);
+            test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", "s2c");
+            test_connection.onopen = on_open;
+            test_connection.onmessage = on_msg;
+            test_connection.onerror = on_error;
             state = "WAIT_FOR_TEST_START";
             return "KEEP GOING";
         }
@@ -208,7 +202,7 @@ function ndt_c2s_test() {
         console.log("C2S type %d (%s)", type, msg_name[type], body);
         if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
             server_port = Number(body.msg);
-            test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", {protocol: "c2s"});
+            test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", "c2s");
             state = "WAIT_FOR_TEST_START";
             return "KEEP GOING";
         }
@@ -232,12 +226,17 @@ function ndt_c2s_test() {
 }
 
 
-function ndt_coordinator(sock) {
+function ndt_coordinator(url) {
+
+	var sock = new WebSocket(url, 'ndt');
+	sock.binaryType = 'arraybuffer';
+
     var state = "",
         active_test,
         tests_to_run = [];
 
-    function on_open() {
+
+    sock.onopen = function() {
         console.log("OPENED CONNECTION");
         // Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
         // open server sockets, which makes those tests impossible, because they
@@ -246,11 +245,16 @@ function ndt_coordinator(sock) {
         state = "LOGIN_SENT";
     }
 
-    function on_message(message) {
+    //function on_message(message) {
+    sock.onmessage = function(e) {
+
+		//var message = new Uint8Array(e.data)
+		var message = parseNdtMsg(e.data);
+
         var type = message[0],
-            body = JSON.parse(message.slice(3)),
-            i,
-            tests;
+        	body = JSON.parse(message.slice(3)),
+        	i,
+        	tests;
         console.log("type = %d (%s) body = '%s'", type, msg_name[type], body.msg);
         if (active_test === undefined && tests_to_run.length > 0) {
             active_test = tests_to_run.pop();
@@ -279,7 +283,7 @@ function ndt_coordinator(sock) {
                 if (body.msg[0] !== "v") { die("Bad msg '%s'", body.msg); }
                 state = "WAIT_FOR_TEST_IDS";
             } else {
-                die("Bad type when we wanted a srv_queue or msg_login ({%d, %d} vs %d)", SRV_QUEUE, MSG_LOGIN, message[0]);
+                die("Bad type when we wanted a srv_queue or msg_login ({%d, %d} vs %d)", SRV_QUEUE, MSG_LOGIN, message);
             }
         } else if (state === "WAIT_FOR_TEST_IDS" && type === MSG_LOGIN) {
             tests = body.msg.split(" ");
@@ -300,18 +304,28 @@ function ndt_coordinator(sock) {
         } else if (state === "WAIT_FOR_MSG_RESULTS" && type === MSG_LOGOUT) {
             sock.close();
             console.log("TESTS FINISHED SUCCESSFULLY!");
-            process.exit(0);
         } else {
-            die("Didn't know what to do with message type %d in state %s", message[0], state);
+            die("Didn't know what to do with message type %d in state %s", type, state);
         }
     }
 
-    sock.on('open', on_open);
-    sock.on('message', on_message);
-    sock.on('error', function (err_msg, code) {
-        console.error("Error: %s (%d)", err_msg, code);
-        process.exit(1);
-    });
+    sock.onerror = function (e) {
+		var err = parseNdtMsg(e.data);
+		die(err);
+    };
+
 }
 
-ndt_coordinator(ws);
+function parseNdtMsg(buf) {
+
+	var resp = [];
+	var array = new Uint8Array(buf);
+	for ( var i = 0; i < 3; i++ ) {
+		resp[i] = array[i];
+	}
+	var msg =  String.fromCharCode.apply(null, array);
+	// remove any control characters from string
+	resp.push(msg.replace(/[\x00-\x1F\x7F-\x9F]/g, ''));
+	return resp;
+
+}
