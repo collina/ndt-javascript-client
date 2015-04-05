@@ -324,11 +324,7 @@ function parseNdtMsg(buf) {
 	for ( var i = 0; i < 3; i++ ) {
 		resp[i] = array[i];
 	}
-	var msg =  String.fromCharCode.apply(null, array);
-	// Sometimes there are extraneous characters before the start of the
-	// stringified object.	Remove them for now, but need to understand why.
-	// Likely something I'm doing wrong with the data.
-	msg = msg.replace(/^[^{]+/, '');
+	var msg =  String.fromCharCode.apply(null, new Uint8Array(buf.slice(3)));
 	resp.push(msg);
 	return resp;
 
