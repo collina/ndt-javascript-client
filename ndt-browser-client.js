@@ -8,13 +8,25 @@
 
 'use strict';
 
-function NDTjs(server, port, path) {
+function NDTjs(server, port, path, callbacks) {
 
 	var _this = this;
 
 	this.server = server;
 	this.port = port;
 	this.path = path;
+	this.c2s_rate;
+	this.s2c_rate;
+	this.min_rtt;
+	if ( typeof callbacks === 'undefined' ) {
+		this.callbacks = {
+			'onchange': function(){},
+			'oncompletion': function(){},
+			'onerror': function(){}
+		};
+	} else {
+		this.callbacks = callbacks;
+	}
 
 	// Constants in use by the entire program, and a live connection to the
 	// server.  The order of these is important because their equivalent
@@ -97,11 +109,13 @@ function NDTjs(server, port, path) {
 	this.ndt_meta_test = function(sock) {
 		var state = "WAIT_FOR_TEST_PREPARE";
 		return function (type, body) {
+			_this.callbacks['onchange']('preparing_meta');
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
 				state = "WAIT_FOR_TEST_START";
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				_this.callbacks['onchange']('starting_meta');
 				// Send one piece of meta data and then an empty meta data packet
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), { binary: true, mask: true });
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""), { binary: true, mask: true });
@@ -109,6 +123,7 @@ function NDTjs(server, port, path) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				_this.callbacks['onchange']('finished_meta');
 				_this.log_msg("ndt_meta_test is done");
 				return "DONE";
 			}
@@ -124,7 +139,7 @@ function NDTjs(server, port, path) {
 		var state = "WAIT_FOR_TEST_PREPARE",
 			server_port,
 			test_connection,
-			TRANSMITTED_BYTES = 0,
+			transmitted_bytes = 0,
 			test_start,
 			test_end;
 	
@@ -145,7 +160,7 @@ function NDTjs(server, port, path) {
 			} else {
 				hdr_size = 10;
 			}
-			TRANSMITTED_BYTES += (hdr_size + message.length);
+			transmitted_bytes += (hdr_size + message.length);
 		}
 	
 		// If there is an error on the s2c socket, then die.
@@ -156,10 +171,11 @@ function NDTjs(server, port, path) {
 	
 		// The closure that processes messages on the control socket for the s2c test.
 		return function (type, body) {
-			var TEST_DURATION_SECONDS,
-				THROUGHPUT_VALUE;
+			var test_duration,
+				throughput;
 			_this.log_msg("CALLED S2C with " + type + " " + _this.msg_names[type] + " in state " + state);
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				_this.callbacks['onchange']('preparing_s2c');
 				server_port = Number(body.msg);
 				// bind a connection to that port
 				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 's2c');
@@ -171,6 +187,7 @@ function NDTjs(server, port, path) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				_this.callbacks['onchange']('running_s2c');
 				state = "WAIT_FOR_FIRST_TEST_MSG";
 				return "KEEP GOING";
 			}
@@ -179,11 +196,14 @@ function NDTjs(server, port, path) {
 				if (test_end === undefined) {
 					test_end = Date.now() / 1000;
 				}
-				// All caps because that's how it is in the NDT spec
-				TEST_DURATION_SECONDS = test_end - test_start;
+				test_duration = test_end - test_start;
 				// Calculation per NDT spec
-				THROUGHPUT_VALUE = 8 * TRANSMITTED_BYTES / 1000 / TEST_DURATION_SECONDS;
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(THROUGHPUT_VALUE)), { binary: true, mask: true });
+				_this.s2c_rate = 8 * transmitted_bytes / 1000 / test_duration;
+				_this.log_msg("S2C rate: " + _this.s2c_rate);
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
+					binary: true,
+					mask: true
+				});
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_MSG')) {
@@ -191,6 +211,7 @@ function NDTjs(server, port, path) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				_this.callbacks['onchange']('fnished_s2c');
 				_this.log_msg("Test is over! " +  body.msg);
 				return "DONE";
 			}
@@ -229,6 +250,7 @@ function NDTjs(server, port, path) {
 		return function (type, body) {
 			_this.log_msg("CALLED C2S with " + type + " " + _this.msg_names[type] + " " + body.msg + " in state " + state);
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				_this.callbacks['onchange']('preparing_c2s');
 				server_port = Number(body.msg);
 				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 'c2s');
 				test_connection.binaryType = 'arraybuffer';
@@ -236,6 +258,7 @@ function NDTjs(server, port, path) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				_this.callbacks['onchange']('running_c2s');
 				test_start = Date.now() / 1000;
 				keep_sending_data();
 				state = "WAIT_FOR_TEST_MSG";
@@ -246,8 +269,10 @@ function NDTjs(server, port, path) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				_this.callbacks['onchange']('finished_c2s');
 				state = "DONE";
-				_this.log_msg("C2S rate: " + 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start));
+				_this.c2s_rate = 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start);
+				_this.log_msg("C2S rate: " + _this.c2s_rate);
 				return "DONE";
 			}
 			_this.die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
@@ -256,7 +281,7 @@ function NDTjs(server, port, path) {
 	
 	
 	this.ndt_coordinator = function() {
-	
+
 		var sock = new WebSocket("ws://" + _this.server + ":" + _this.port + _this.path, 'ndt');
 		sock.binaryType = 'arraybuffer';
 	
@@ -332,6 +357,7 @@ function NDTjs(server, port, path) {
 				_this.log_msg(body);
 			} else if (state === "WAIT_FOR_MSG_RESULTS" && type === _this.msg_names.indexOf('MSG_LOGOUT')) {
 				sock.close();
+				_this.callbacks['oncompletion']('finished_all');
 				_this.log_msg("TESTS FINISHED SUCCESSFULLY!");
 			} else {
 				_this.die("Didn't know what to do with message type %d in state %s", type, state);
