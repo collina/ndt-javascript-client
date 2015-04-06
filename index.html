@@ -15,11 +15,12 @@
 
 <script>
     var server = "ndt.iupui.mlab2.nuq0t.measurement-lab.org";
-    var server_port = "7000";
-	var url = "ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement";
+    var port = "7000";
+    var path = "/ndt_after_user_privacy_agreement";
+	var ndt = new NDTjs(server, port, path);
 
 	document.getElementById('start_test').addEventListener('click', function() {
-		ndt_coordinator(url);
+		ndt.ndt_coordinator();
 	});
 </script>
 

@@ -1,0 +1,3 @@
+[submodule "ndt_js"]
+	path = ndt_js
+	url = git@github.com:opentechinstitute/ndt_js.git

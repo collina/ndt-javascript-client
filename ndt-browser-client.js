@@ -8,332 +8,350 @@
 
 'use strict';
 
-// Constants in use by the entire program, and a live connection to the server.
-var COMM_FAILURE = 0,
-	SRV_QUEUE = 1,
-	MSG_LOGIN = 2,
-	TEST_PREPARE = 3,
-	TEST_START = 4,
-	TEST_MSG = 5,
-	TEST_FINALIZE = 6,
-	MSG_ERROR = 7,
-	MSG_RESULTS = 8,
-	MSG_LOGOUT = 9,
-	MSG_WAITING = 10,
-	MSG_EXTENDED_LOGIN = 11,
-	msg_name = ["COMM_FAILURE", "SRV_QUEUE", "MSG_LOGIN", "TEST_PREPARE", "TEST_START", "TEST_MSG", "TEST_FINALIZE", "MSG_ERROR", "MSG_RESULTS", "MSG_LOGOUT", "MSG_WAITING", "MSG_EXTENDED_LOGIN"]
+function NDTjs(server, port, path) {
 
-// A helper function that prints an error message and crashes things.
-function die(a1, a2, a3, a4) {
-	logMessage('DIED: '.concat(Array.prototype.slice.call(arguments)));
-}
+	var _this = this;
 
-// Makes a login message suitable for sending to the server.  The login
-// messages specifies the tests to be run.
-function make_login_msg(desired_tests) {
-	var i = 0,
-		message = 'XXX { "msg": "Xv3.5.5" }',
-		NDT_LOGIN_MSG = new Uint8Array(message.length);
-	NDT_LOGIN_MSG[0] = MSG_EXTENDED_LOGIN;	// MSG_EXTENDED_LOGIN
-	NDT_LOGIN_MSG[1] = 0;  // Two bytes to represent packet length
-	NDT_LOGIN_MSG[2] = message.length - 3;
-	for (i = 3; i < message.length; i += 1) {
-		if (message.charAt(i) === 'X') {
-			// The mid-message X specifies the tests to run.  We must support
-			// TEST_STATUS (16) as a 3.5.5+ client
-			NDT_LOGIN_MSG[i] = desired_tests | 16;
-		} else {
-			NDT_LOGIN_MSG[i] = message.charCodeAt(i);
-		}
+	this.server = server;
+	this.port = port;
+	this.path = path;
+
+	// Constants in use by the entire program, and a live connection to the
+	// server.  The order of these is important because their equivalent
+	// numeric representations correspond to the index number in the array.
+	this.msg_names = [
+		"COMM_FAILURE",
+		"SRV_QUEUE",
+		"MSG_LOGIN",
+		"TEST_PREPARE",
+		"TEST_START",
+		"TEST_MSG",
+		"TEST_FINALIZE",
+		"MSG_ERROR",
+		"MSG_RESULTS",
+		"MSG_LOGOUT",
+		"MSG_WAITING",
+		"MSG_EXTENDED_LOGIN"
+	];
+	
+	// A helper function that prints an error message and crashes things.
+	this.die = function(a1, a2, a3, a4) {
+		_this.log_msg('DIED: '.concat(Array.prototype.slice.call(arguments)));
 	}
-	return NDT_LOGIN_MSG;
-}
+	
+	// Makes a login message suitable for sending to the server.  The login
+	// messages specifies the tests to be run.
+	this.make_login_msg = function(desired_tests) {
+		var i = 0,
+			msg = 'XXX { "msg": "Xv3.5.5" }',
+			data = new Uint8Array(msg.length);
 
-// A generic message creation system.  The output is an array of bytes suitable
-// for sending on a binary websocket.
-function make_ndt_msg(type, msg) {
-	var message_body, NDT_MSG, i;
-	message_body = '{ "msg": "' + msg + '" } ';
-	NDT_MSG = new Uint8Array(message_body.length + 3);
-	NDT_MSG[0] = type;
-	NDT_MSG[1] = (message_body.length >> 8) & 0xFF;
-	NDT_MSG[2] = message_body.length & 0xFF;
-	for (i = 0; i < message_body.length; i++) {
-		NDT_MSG[i + 3] = message_body.charCodeAt(i);
+		data[0] = this.msg_names.indexOf('MSG_EXTENDED_LOGIN'); // MSG_EXTENDED_LOGIN
+		data[1] = 0;  // Two bytes to represent packet length
+		data[2] = msg.length - 3;
+		for (i = 3; i < msg.length; i += 1) {
+			if (msg.charAt(i) === 'X') {
+				// The mid-message X specifies the tests to run.  We must support
+				// TEST_STATUS (16) as a 3.5.5+ client
+				data[i] = desired_tests | 16;
+			} else {
+				data[i] = msg.charCodeAt(i);
+			}
+		}
+		return data;
 	}
-	return NDT_MSG;
-}
-
-// Returns a closure that will process all messages for the META NDT test.	The
-// closure will return the string "DONE" when the test is complete and the
-// closure should no longer be called.
-function ndt_meta_test(sock) {
-	var state = "WAIT_FOR_TEST_PREPARE";
-	return function (type, body) {
-		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
-			state = "WAIT_FOR_TEST_START";
-			return "KEEP GOING";
+	
+	// A generic message creation system.  The output is an array of bytes
+	// suitable for sending on a binary websocket.
+	this.make_ndt_msg = function(type, msg) {
+		var message_body, data, i;
+		message_body = '{ "msg": "' + msg + '" } ';
+		data = new Uint8Array(message_body.length + 3);
+		data[0] = type;
+		data[1] = (message_body.length >> 8) & 0xFF;
+		data[2] = message_body.length & 0xFF;
+		for (i = 0; i < message_body.length; i++) {
+			data[i + 3] = message_body.charCodeAt(i);
 		}
-		if (state === "WAIT_FOR_TEST_START" && type === TEST_START) {
-			// Send one piece of meta data and then an empty meta data packet
-			sock.send(make_ndt_msg(TEST_MSG, "client.os.name:CLIWebsockets"), { binary: true, mask: true });
-			sock.send(make_ndt_msg(TEST_MSG, ""), { binary: true, mask: true });
-			state = "WAIT_FOR_TEST_FINALIZE";
-			return "KEEP GOING";
-		}
-		if (state === "WAIT_FOR_TEST_FINALIZE" && type === TEST_FINALIZE) {
-			logMessage("ndt_meta_test is done");
-			return "DONE";
-		}
-		die("Bad state and message combo for META test: ", state, type, body.msg);
-	};
-}
+		return data;
+	}
+	
 
-// Returns a closure that will process all messages for the S2C NDT test.  The
-// closure will return the string "DONE" when the test is complete and the
-// closure should no longer be called.
-function ndt_s2c_test(sock) {
-	var state = "WAIT_FOR_TEST_PREPARE",
-		server_port,
-		test_connection,
-		TRANSMITTED_BYTES = 0,
-		test_start,
-		test_end;
-
-	// Function called on the opening of the s2c socket.
-	function on_open() {
-		logMessage("OPENED S2C SUCCESFULLY!");
-		test_start = Date.now() / 1000;
+	this.parse_ndt_msg = function(buf) {
+	
+		var resp = [];
+		var array = new Uint8Array(buf);
+		for ( var i = 0; i < 3; i++ ) {
+			resp[i] = array[i];
+		}
+		var msg =  String.fromCharCode.apply(null, new Uint8Array(buf.slice(3)));
+		resp.push(msg);
+		return resp;
+	
 	}
 
-	// Function called for each message received on the s2c socket.
-	function on_msg(e) {
-		var message = parseNdtMsg(e.data);
-		var hdr_size;
-		if (message.length < 126) {
-			hdr_size = 2;
-		} else if (message.length < 65536) {
-			hdr_size = 4;
-		} else {
-			hdr_size = 10;
-		}
-		TRANSMITTED_BYTES += (hdr_size + message.length);
-	}
 
-	// If there is an error on the s2c socket, then die.
-	function on_error(e) {
-		var err = parseNdtMsg(e.data);
-		die(err);
+	// Returns a closure that will process all messages for the META NDT test.
+	// The closure will return the string "DONE" when the test is complete and
+	// the closure should no longer be called.
+	this.ndt_meta_test = function(sock) {
+		var state = "WAIT_FOR_TEST_PREPARE";
+		return function (type, body) {
+			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				state = "WAIT_FOR_TEST_START";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				// Send one piece of meta data and then an empty meta data packet
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), { binary: true, mask: true });
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""), { binary: true, mask: true });
+				state = "WAIT_FOR_TEST_FINALIZE";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				_this.log_msg("ndt_meta_test is done");
+				return "DONE";
+			}
+			_this.die("Bad state and message combo for META test: ", state, type, body.msg);
+		};
 	}
+	
 
-	// The closure that processes messages on the control socket for the s2c test.
-	return function (type, body) {
-		var TEST_DURATION_SECONDS,
-			THROUGHPUT_VALUE;
-		logMessage("CALLED S2C with " + type + " " + msg_name[type] + " in state " + state);
-		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
-			server_port = Number(body.msg);
-			// bind a connection to that port
-			test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", "s2c");
-			test_connection.binaryType = 'arraybuffer';
-			test_connection.onopen = on_open;
-			test_connection.onmessage = on_msg;
-			test_connection.onerror = on_error;
-			state = "WAIT_FOR_TEST_START";
-			return "KEEP GOING";
+	// Returns a closure that will process all messages for the S2C NDT test.
+	// The closure will return the string "DONE" when the test is complete and
+	// the closure should no longer be called.
+	this.ndt_s2c_test = function(sock) {
+		var state = "WAIT_FOR_TEST_PREPARE",
+			server_port,
+			test_connection,
+			TRANSMITTED_BYTES = 0,
+			test_start,
+			test_end;
+	
+		// Function called on the opening of the s2c socket.
+		function on_open() {
+			_this.log_msg("OPENED S2C SUCCESFULLY!");
+			test_start = Date.now() / 1000;
 		}
-		if (state === "WAIT_FOR_TEST_START" && type === TEST_START) {
-			state = "WAIT_FOR_FIRST_TEST_MSG";
-			return "KEEP GOING";
+	
+		// Function called for each message received on the s2c socket.
+		function on_msg(e) {
+			var message = _this.parse_ndt_msg(e.data);
+			var hdr_size;
+			if (message.length < 126) {
+				hdr_size = 2;
+			} else if (message.length < 65536) {
+				hdr_size = 4;
+			} else {
+				hdr_size = 10;
+			}
+			TRANSMITTED_BYTES += (hdr_size + message.length);
 		}
-		if (state === "WAIT_FOR_FIRST_TEST_MSG" && type === TEST_MSG) {
-			state = "WAIT_FOR_TEST_MSG_OR_TEST_FINISH";
-			if (test_end === undefined) {
+	
+		// If there is an error on the s2c socket, then die.
+		function on_error(e) {
+			var err = _this.parse_ndt_msg(e.data);
+			_this.die(err);
+		}
+	
+		// The closure that processes messages on the control socket for the s2c test.
+		return function (type, body) {
+			var TEST_DURATION_SECONDS,
+				THROUGHPUT_VALUE;
+			_this.log_msg("CALLED S2C with " + type + " " + _this.msg_names[type] + " in state " + state);
+			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				server_port = Number(body.msg);
+				// bind a connection to that port
+				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 's2c');
+				test_connection.binaryType = 'arraybuffer';
+				test_connection.onopen = on_open;
+				test_connection.onmessage = on_msg;
+				test_connection.onerror = on_error;
+				state = "WAIT_FOR_TEST_START";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				state = "WAIT_FOR_FIRST_TEST_MSG";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_FIRST_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
+				state = "WAIT_FOR_TEST_MSG_OR_TEST_FINISH";
+				if (test_end === undefined) {
+					test_end = Date.now() / 1000;
+				}
+				// All caps because that's how it is in the NDT spec
+				TEST_DURATION_SECONDS = test_end - test_start;
+				// Calculation per NDT spec
+				THROUGHPUT_VALUE = 8 * TRANSMITTED_BYTES / 1000 / TEST_DURATION_SECONDS;
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(THROUGHPUT_VALUE)), { binary: true, mask: true });
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_MSG')) {
+				_this.log_msg("Got results: " +  body.msg);
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				_this.log_msg("Test is over! " +  body.msg);
+				return "DONE";
+			}
+			_this.die("S2C: State = " + state + " type = " + type + "(" + msg_names[type] + ") message = ", body);
+		};
+	}
+	
+	
+	this.ndt_c2s_test = function() {
+		var state = "WAIT_FOR_TEST_PREPARE",
+			server_port,
+			test_connection,
+			TRANSMITTED_BYTES = 0,
+			data_to_send = new Uint8Array(8192 - 4),
+			i,
+			test_start,
+			test_end;
+	
+		for (i = 0; i < data_to_send.length; i += 1) {
+			// All the characters must be printable, and the printable range of
+			// ASCII is from 32 to 126.  101 is because we need a prime number.
+			data_to_send[i] = 32 + (i * 101) % (126 - 32);
+		}
+	
+		// A while loop, encoded as a setTimeout callback.
+		function keep_sending_data() {
+			test_connection.send(data_to_send);
+			TRANSMITTED_BYTES += 8192;
+			if (Date.now() / 1000 < test_start + 10) {
+				setTimeout(keep_sending_data, 0);
+			} else {
 				test_end = Date.now() / 1000;
 			}
-			// All caps because that's how it is in the NDT spec
-			TEST_DURATION_SECONDS = test_end - test_start;
-			// Calculation per NDT spec
-			THROUGHPUT_VALUE = 8 * TRANSMITTED_BYTES / 1000 / TEST_DURATION_SECONDS;
-			sock.send(make_ndt_msg(TEST_MSG, String(THROUGHPUT_VALUE)), { binary: true, mask: true });
-			return "KEEP GOING";
 		}
-		if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === TEST_MSG) {
-			logMessage("Got results: " +  body.msg);
-			return "KEEP GOING";
-		}
-		if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === TEST_FINALIZE) {
-			logMessage("Test is over! " +  body.msg);
-			return "DONE";
-		}
-		die("S2C: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
-	};
-}
-
-
-function ndt_c2s_test() {
-	var state = "WAIT_FOR_TEST_PREPARE",
-		server_port,
-		test_connection,
-		TRANSMITTED_BYTES = 0,
-		data_to_send = new Uint8Array(8192 - 4),
-		i,
-		test_start,
-		test_end;
-
-	for (i = 0; i < data_to_send.length; i += 1) {
-		// All the characters must be printable, and the printable range of
-		// ASCII is from 32 to 126.  101 is because we need a prime number.
-		data_to_send[i] = 32 + (i * 101) % (126 - 32);
-	}
-
-	// A while loop, encoded as a setTimeout callback.
-	function keep_sending_data() {
-		test_connection.send(data_to_send);
-		TRANSMITTED_BYTES += 8192;
-		if (Date.now() / 1000 < test_start + 10) {
-			setTimeout(keep_sending_data, 0);
-		} else {
-			test_end = Date.now() / 1000;
-		}
-	}
-
-	return function (type, body) {
-		logMessage("CALLED C2S with " + type + " " + msg_name[type] + " " + body.msg + " in state " + state);
-		if (state === "WAIT_FOR_TEST_PREPARE" && type === TEST_PREPARE) {
-			server_port = Number(body.msg);
-			test_connection = new WebSocket("ws://" + server + ":" + server_port + "/ndt_after_user_privacy_agreement", "c2s");
-			test_connection.binaryType = 'arraybuffer';
-			state = "WAIT_FOR_TEST_START";
-			return "KEEP GOING";
-		}
-		if (state === "WAIT_FOR_TEST_START" && type === TEST_START) {
-			test_start = Date.now() / 1000;
-			keep_sending_data();
-			state = "WAIT_FOR_TEST_MSG";
-			return "KEEP GOING";
-		}
-		if (state === "WAIT_FOR_TEST_MSG" && type === TEST_MSG) {
-			state = "WAIT_FOR_TEST_FINALIZE";
-			return "KEEP GOING";
-		}
-		if (state === "WAIT_FOR_TEST_FINALIZE" && type === TEST_FINALIZE) {
-			state = "DONE";
-			logMessage("C2S rate: " + 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start));
-			return "DONE";
-		}
-		die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
-	};
-}
-
-
-function ndt_coordinator(url) {
-
-	var sock = new WebSocket(url, 'ndt');
-	sock.binaryType = 'arraybuffer';
-
-	var state = "",
-		active_test,
-		tests_to_run = [];
-
-
-	sock.onopen = function() {
-		logMessage("OPENED CONNECTION");
-		// Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
-		// open server sockets, which makes those tests impossible, because they
-		// require the server to open a connection to a port on the client.
-		sock.send(make_login_msg(2 | 4 | 32), { binary: true, mask: true });
-		state = "LOGIN_SENT";
-	}
-
-	//function on_message(message) {
-	sock.onmessage = function(e) {
-
-		//var message = new Uint8Array(e.data)
-		var message = parseNdtMsg(e.data);
-
-		var type = message[0],
-			body = JSON.parse(message[3]),
-			i,
-			tests;
-		logMessage("type = " + type + " (" + msg_name[type] + ") body = '" + body.msg + "'");
-		if (active_test === undefined && tests_to_run.length > 0) {
-			active_test = tests_to_run.pop();
-		}
-		if (active_test !== undefined) {
-			// Pass the message to the sub-test
-			logMessage("Calling a subtest");
-			if (active_test(type, body) === "DONE") {
-				active_test = undefined;
-				logMessage("Subtest complete");
+	
+		return function (type, body) {
+			_this.log_msg("CALLED C2S with " + type + " " + _this.msg_names[type] + " " + body.msg + " in state " + state);
+			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				server_port = Number(body.msg);
+				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 'c2s');
+				test_connection.binaryType = 'arraybuffer';
+				state = "WAIT_FOR_TEST_START";
+				return "KEEP GOING";
 			}
-			return;
+			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
+				test_start = Date.now() / 1000;
+				keep_sending_data();
+				state = "WAIT_FOR_TEST_MSG";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
+				state = "WAIT_FOR_TEST_FINALIZE";
+				return "KEEP GOING";
+			}
+			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
+				state = "DONE";
+				_this.log_msg("C2S rate: " + 8 * TRANSMITTED_BYTES / 1000 / (test_end - test_start));
+				return "DONE";
+			}
+			_this.die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
+		};
+	}
+	
+	
+	this.ndt_coordinator = function() {
+	
+		var sock = new WebSocket("ws://" + _this.server + ":" + _this.port + _this.path, 'ndt');
+		sock.binaryType = 'arraybuffer';
+	
+		var state = "",
+			active_test,
+			tests_to_run = [];
+	
+	
+		sock.onopen = function() {
+			_this.log_msg("OPENED CONNECTION");
+			// Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
+			// open server sockets, which makes those tests impossible, because they
+			// require the server to open a connection to a port on the client.
+			sock.send(_this.make_login_msg(2 | 4 | 32), { binary: true, mask: true });
+			state = "LOGIN_SENT";
 		}
-		// If there is an active test, hand off control to the test
-		// Otherwise, move the coordinator state forwards.
-		if (state === "LOGIN_SENT") {
-			// Response to NDT_LOGIN should be SRV_QUEUE messages until we get SRV_QUEUE("0")
-			if (type === SRV_QUEUE) {
-				if (body.msg === "9990") {	  // special keepalive message
-					sock.send(make_ndt_msg(MSG_WAITING, ""), { binary: true, mask: true });
-				} else if (body.msg === "9977") {	 // Test failed
-					die("server terminated test with SRV_QUEUE 9977");
+	
+		//function on_message(message) {
+		sock.onmessage = function(e) {
+	
+			//var message = new Uint8Array(e.data)
+			var message = _this.parse_ndt_msg(e.data);
+	
+			var type = message[0],
+				body = JSON.parse(message[3]),
+				i,
+				tests;
+			_this.log_msg("type = " + type + " (" + _this.msg_names[type] + ") body = '" + body.msg + "'");
+			if (active_test === undefined && tests_to_run.length > 0) {
+				active_test = tests_to_run.pop();
+			}
+			if (active_test !== undefined) {
+				// Pass the message to the sub-test
+				_this.log_msg("Calling a subtest");
+				if (active_test(type, body) === "DONE") {
+					active_test = undefined;
+					_this.log_msg("Subtest complete");
 				}
-				logMessage("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
-			} else if (type === MSG_LOGIN) {
-				if (body.msg[0] !== "v") { die("Bad msg '%s'", body.msg); }
-				state = "WAIT_FOR_TEST_IDS";
+				return;
+			}
+			// If there is an active test, hand off control to the test
+			// Otherwise, move the coordinator state forwards.
+			if (state === "LOGIN_SENT") {
+				// Response to NDT_LOGIN should be SRV_QUEUE messages until we get SRV_QUEUE("0")
+				if (type === _this.msg_names.indexOf('SRV_QUEUE')) {
+					if (body.msg === "9990") {	  // special keepalive message
+						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""), { binary: true, mask: true });
+					} else if (body.msg === "9977") {	 // Test failed
+						_this.die("server terminated test with SRV_QUEUE 9977");
+					}
+					_this.log_msg("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
+				} else if (type === _this.msg_names.indexOf('MSG_LOGIN')) {
+					if (body.msg[0] !== "v") { die("Bad msg '%s'", body.msg); }
+					state = "WAIT_FOR_TEST_IDS";
+				} else {
+					_this.die("Bad type when we wanted a srv_queue or msg_login ({%d, %d} vs %d)", SRV_QUEUE, MSG_LOGIN, message);
+				}
+			} else if (state === "WAIT_FOR_TEST_IDS" && type === _this.msg_names.indexOf('MSG_LOGIN')) {
+				tests = body.msg.split(" ");
+				for (i = tests.length - 1; i >= 0; i -= 1) {
+					if (tests[i] === "2") {
+						tests_to_run.push(_this.ndt_c2s_test());
+					} else if (tests[i] === "4") {
+						tests_to_run.push(_this.ndt_s2c_test(sock));
+					} else if (tests[i] === "32") {
+						tests_to_run.push(_this.ndt_meta_test(sock));
+					} else if (tests[i] !== '') {
+						_this.die("Unknown test type: %d", tests[i], tests, body.msg);
+					}
+				}
+				state = "WAIT_FOR_MSG_RESULTS";
+			} else if (state === "WAIT_FOR_MSG_RESULTS" && type === _this.msg_names.indexOf('MSG_RESULTS')) {
+				_this.log_msg(body);
+			} else if (state === "WAIT_FOR_MSG_RESULTS" && type === _this.msg_names.indexOf('MSG_LOGOUT')) {
+				sock.close();
+				_this.log_msg("TESTS FINISHED SUCCESSFULLY!");
 			} else {
-				die("Bad type when we wanted a srv_queue or msg_login ({%d, %d} vs %d)", SRV_QUEUE, MSG_LOGIN, message);
+				_this.die("Didn't know what to do with message type %d in state %s", type, state);
 			}
-		} else if (state === "WAIT_FOR_TEST_IDS" && type === MSG_LOGIN) {
-			tests = body.msg.split(" ");
-			for (i = tests.length - 1; i >= 0; i -= 1) {
-				if (tests[i] === "2") {
-					tests_to_run.push(ndt_c2s_test());
-				} else if (tests[i] === "4") {
-					tests_to_run.push(ndt_s2c_test(sock));
-				} else if (tests[i] === "32") {
-					tests_to_run.push(ndt_meta_test(sock));
-				} else if (tests[i] !== '') {
-					die("Unknown test type: %d", tests[i], tests, body.msg);
-				}
-			}
-			state = "WAIT_FOR_MSG_RESULTS";
-		} else if (state === "WAIT_FOR_MSG_RESULTS" && type === MSG_RESULTS) {
-			logMessage(body);
-		} else if (state === "WAIT_FOR_MSG_RESULTS" && type === MSG_LOGOUT) {
-			sock.close();
-			logMessage("TESTS FINISHED SUCCESSFULLY!");
-		} else {
-			die("Didn't know what to do with message type %d in state %s", type, state);
 		}
+	
+		sock.onerror = function (e) {
+			var err = _this.parse_ndt_msg(e.data);
+			_this.die(err);
+		};
+	
 	}
-
-	sock.onerror = function (e) {
-		var err = parseNdtMsg(e.data);
-		die(err);
-	};
-
-}
-
-function parseNdtMsg(buf) {
-
-	var resp = [];
-	var array = new Uint8Array(buf);
-	for ( var i = 0; i < 3; i++ ) {
-		resp[i] = array[i];
+	
+	
+	this.log_msg= function(msg) {
+	
+		var debugDiv = document.getElementById('debug');
+		debugDiv.innerHTML += '<br/>&raquo; ' + msg;
+		console.log(msg);
+	
 	}
-	var msg =  String.fromCharCode.apply(null, new Uint8Array(buf.slice(3)));
-	resp.push(msg);
-	return resp;
-
-}
-
-function logMessage(msg) {
-
-	var debugDiv = document.getElementById('debug');
-	debugDiv.innerHTML += '<br/>&raquo; ' + msg;
-	console.log(msg);
 
 }
