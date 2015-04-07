@@ -1,1 +1,0 @@
-../../ndt-browser-client.js
