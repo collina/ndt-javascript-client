@@ -156,7 +156,7 @@ function NDTjs(server, port, path, callbacks) {
 		var state = "WAIT_FOR_TEST_PREPARE",
 			server_port,
 			test_connection,
-			transmitted_bytes = 0,
+			received_bytes = 0,
 			test_start,
 			test_end;
 	
@@ -177,7 +177,7 @@ function NDTjs(server, port, path, callbacks) {
 			} else {
 				hdr_size = 10;
 			}
-			transmitted_bytes += (hdr_size + message.length);
+			received_bytes += (hdr_size + message.length);
 		}
 	
 		// If there is an error on the s2c socket, then die.
@@ -215,7 +215,7 @@ function NDTjs(server, port, path, callbacks) {
 				}
 				test_duration = test_end - test_start;
 				// Calculation per NDT spec
-				_this.s2c_rate = 8 * transmitted_bytes / 1000 / test_duration;
+				_this.s2c_rate = 8 * receieved_bytes / 1000 / test_duration;
 				_this.log_msg("S2C rate: " + _this.s2c_rate);
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
 					binary: true,
@@ -292,14 +292,16 @@ function NDTjs(server, port, path, callbacks) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
+				_this.c2s_rate = body.msg;
+				_this.log_msg("C2S rate calculated by server: " + _this.c2s_rate);
 				state = "WAIT_FOR_TEST_FINALIZE";
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
 				_this.callbacks['onchange']('finished_c2s');
 				state = "DONE";
-				_this.c2s_rate = 8 * transmitted_bytes / 1000 / (test_end - test_start);
-				_this.log_msg("C2S rate: " + _this.c2s_rate);
+				var our_c2s_rate = 8 * transmitted_bytes / 1000 / (test_end - test_start);
+				_this.log_msg("C2S rate calculated by client: " + our_c2s_rate);
 				return "DONE";
 			}
 			_this.die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
