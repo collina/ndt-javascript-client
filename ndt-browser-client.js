@@ -162,8 +162,7 @@ function NDTjs(server, port, path, callbacks) {
 	
 		// The closure that processes messages on the control socket for the s2c test.
 		return function (type, body) {
-			var test_duration,
-				throughput;
+			var throughput;
 
 			_this.log_msg("CALLED S2C with " + type + " " + _this.msg_names[type] + " in state " + state);
 
@@ -182,14 +181,14 @@ function NDTjs(server, port, path, callbacks) {
 				test_connection.onmessage = function(e) {
 					var message = _this.parse_ndt_msg(e.data);
 					var hdr_size;
-					if (message.length < 126) {
+					if (message[3].length < 126) {
 						hdr_size = 2;
-					} else if (message.length < 65536) {
+					} else if (message[3].length < 65536) {
 						hdr_size = 4;
 					} else {
 						hdr_size = 10;
 					}
-					received_bytes += (hdr_size + message.length);
+					received_bytes += (hdr_size + message[3].length);
 				}
 
 				test_connection.onerror = function(e) {
@@ -210,9 +209,8 @@ function NDTjs(server, port, path, callbacks) {
 				if (test_end === undefined) {
 					test_end = Date.now() / 1000;
 				}
-				test_duration = test_end - test_start;
 				// Calculation per NDT spec
-				_this.s2c_rate = 8 * received_bytes / 1000 / test_duration;
+				_this.s2c_rate = 8 * received_bytes / 1000 / (test_end - test_start);
 				_this.log_msg("S2C rate: " + _this.s2c_rate);
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
 					binary: true,
