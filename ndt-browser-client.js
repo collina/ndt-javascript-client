@@ -160,46 +160,43 @@ function NDTjs(server, port, path, callbacks) {
 			test_start,
 			test_end;
 	
-		// Function called on the opening of the s2c socket.
-		function on_open() {
-			_this.log_msg("OPENED S2C SUCCESFULLY!");
-			test_start = Date.now() / 1000;
-		}
-	
-		// Function called for each message received on the s2c socket.
-		function on_msg(e) {
-			var message = _this.parse_ndt_msg(e.data);
-			var hdr_size;
-			if (message.length < 126) {
-				hdr_size = 2;
-			} else if (message.length < 65536) {
-				hdr_size = 4;
-			} else {
-				hdr_size = 10;
-			}
-			received_bytes += (hdr_size + message.length);
-		}
-	
-		// If there is an error on the s2c socket, then die.
-		function on_error(e) {
-			var err = _this.parse_ndt_msg(e.data);
-			_this.die(err);
-		}
-	
 		// The closure that processes messages on the control socket for the s2c test.
 		return function (type, body) {
 			var test_duration,
 				throughput;
+
 			_this.log_msg("CALLED S2C with " + type + " " + _this.msg_names[type] + " in state " + state);
+
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
 				_this.callbacks['onchange']('preparing_s2c');
+
 				server_port = Number(body.msg);
-				// bind a connection to that port
 				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 's2c');
 				test_connection.binaryType = 'arraybuffer';
-				test_connection.onopen = on_open;
-				test_connection.onmessage = on_msg;
-				test_connection.onerror = on_error;
+
+				test_connection.onopen = function() {
+					_this.log_msg("OPENED S2C SUCCESFULLY!");
+					test_start = Date.now() / 1000;
+				}
+
+				test_connection.onmessage = function(e) {
+					var message = _this.parse_ndt_msg(e.data);
+					var hdr_size;
+					if (message.length < 126) {
+						hdr_size = 2;
+					} else if (message.length < 65536) {
+						hdr_size = 4;
+					} else {
+						hdr_size = 10;
+					}
+					received_bytes += (hdr_size + message.length);
+				}
+
+				test_connection.onerror = function(e) {
+					var err = _this.parse_ndt_msg(e.data);
+					_this.die(err);
+				}
+
 				state = "WAIT_FOR_TEST_START";
 				return "KEEP GOING";
 			}
@@ -215,7 +212,7 @@ function NDTjs(server, port, path, callbacks) {
 				}
 				test_duration = test_end - test_start;
 				// Calculation per NDT spec
-				_this.s2c_rate = 8 * receieved_bytes / 1000 / test_duration;
+				_this.s2c_rate = 8 * received_bytes / 1000 / test_duration;
 				_this.log_msg("S2C rate: " + _this.s2c_rate);
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
 					binary: true,
