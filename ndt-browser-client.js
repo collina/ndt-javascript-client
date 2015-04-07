@@ -128,8 +128,14 @@ function NDTjs(server, port, path, callbacks) {
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
 				_this.callbacks['onchange']('starting_meta');
 				// Send one piece of meta data and then an empty meta data packet
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), { binary: true, mask: true });
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""), { binary: true, mask: true });
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), {
+					binary: true,
+					mask: true
+				});
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""), {
+					binary: true,
+					mask: true
+				});
 				state = "WAIT_FOR_TEST_FINALIZE";
 				return "KEEP GOING";
 			}
@@ -256,8 +262,11 @@ function NDTjs(server, port, path, callbacks) {
 	
 		// A while loop, encoded as a setTimeout callback.
 		function keep_sending_data() {
-			test_connection.send(data_to_send);
-			transmitted_bytes += 8192;
+			// Make sure the buffer is empty before we push more data in.
+			if ( test_connection.bufferedAmount == 0 ) {
+				test_connection.send(data_to_send);
+				transmitted_bytes += 8192;
+			}
 			if (Date.now() / 1000 < test_start + 10) {
 				setTimeout(keep_sending_data, 0);
 			} else {
@@ -337,8 +346,6 @@ function NDTjs(server, port, path, callbacks) {
 				if (active_test(type, body) === "DONE") {
 					active_test = undefined;
 					_this.log_msg("Subtest complete");
-				} else {
-					_this.log_msg('MSG: ' + body);
 				}
 				return;
 			}
