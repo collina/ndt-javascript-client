@@ -1,6 +1,6 @@
-/* This is an NDT client, written in node.js.  It speaks the websocket version
- * of the NDT protocol.  The NDT protocol is documented at:
- *	 https://code.google.com/p/ndt/wiki/NDTProtocol
+/* This is an NDT client, written in javascript.  It speaks the websocket
+ * version of the NDT protocol.  The NDT protocol is documented at:
+ * https://code.google.com/p/ndt/wiki/NDTProtocol
  */
 
 /*jslint bitwise: true, node: true */
@@ -13,8 +13,8 @@ function NDTjs(server, port, path, callbacks) {
 	var _this = this;
 
 	this.server = server;
-	this.port = port;
-	this.path = path;
+	this.server_port = port;
+	this.server_path = path;
 	this.c2s_rate;
 	this.s2c_rate;
 
@@ -31,8 +31,9 @@ function NDTjs(server, port, path, callbacks) {
 	// create some empty ones if none were specified.
 	if ( typeof callbacks === 'undefined' ) {
 		this.callbacks = {
+			'onstart': function(){},
 			'onchange': function(){},
-			'oncompletion': function(){},
+			'onfinish': function(){},
 			'onerror': function(){}
 		};
 	} else {
@@ -120,13 +121,13 @@ function NDTjs(server, port, path, callbacks) {
 	this.ndt_meta_test = function(sock) {
 		var state = "WAIT_FOR_TEST_PREPARE";
 		return function (type, body) {
-			_this.callbacks['onchange']('preparing_meta');
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
+				_this.callbacks['onchange']('preparing_meta');
 				state = "WAIT_FOR_TEST_START";
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
-				_this.callbacks['onchange']('starting_meta');
+				_this.callbacks['onchange']('running_meta');
 				// Send one piece of meta data and then an empty meta data packet
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), {
 					binary: true,
@@ -164,13 +165,13 @@ function NDTjs(server, port, path, callbacks) {
 		return function (type, body) {
 			var throughput;
 
-			_this.log_msg("CALLED S2C with " + type + " " + _this.msg_names[type] + " in state " + state);
+			_this.log_msg("CALLED S2C with " + type + " (" + _this.msg_names[type] + ") in state " + state);
 
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
 				_this.callbacks['onchange']('preparing_s2c');
 
 				server_port = Number(body.msg);
-				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 's2c');
+				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.server_path, 's2c');
 				test_connection.binaryType = 'arraybuffer';
 
 				test_connection.onopen = function() {
@@ -245,11 +246,11 @@ function NDTjs(server, port, path, callbacks) {
 			test_connection,
 			transmitted_bytes = 0,
 			data_to_send = new Uint8Array(8192 - 4),
-			i,
 			test_start,
-			test_end;
+			test_end,
+			our_c2s_rate;
 	
-		for (i = 0; i < data_to_send.length; i += 1) {
+		for (var i = 0; i < data_to_send.length; i += 1) {
 			// All the characters must be printable, and the printable range of
 			// ASCII is from 32 to 126.  101 is because we need a prime number.
 			data_to_send[i] = 32 + (i * 101) % (126 - 32);
@@ -270,11 +271,11 @@ function NDTjs(server, port, path, callbacks) {
 		}
 	
 		return function (type, body) {
-			_this.log_msg("CALLED C2S with " + type + " " + _this.msg_names[type] + " " + body.msg + " in state " + state);
+			_this.log_msg("CALLED C2S with " + type + " (" + _this.msg_names[type] + ") " + body.msg + " in state " + state);
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
 				_this.callbacks['onchange']('preparing_c2s');
 				server_port = Number(body.msg);
-				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.path, 'c2s');
+				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.server_path, 'c2s');
 				test_connection.binaryType = 'arraybuffer';
 				state = "WAIT_FOR_TEST_START";
 				return "KEEP GOING";
@@ -295,7 +296,7 @@ function NDTjs(server, port, path, callbacks) {
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
 				_this.callbacks['onchange']('finished_c2s');
 				state = "DONE";
-				var our_c2s_rate = 8 * transmitted_bytes / 1000 / (test_end - test_start);
+				our_c2s_rate = 8 * transmitted_bytes / 1000 / (test_end - test_start);
 				_this.log_msg("C2S rate calculated by client: " + our_c2s_rate);
 				return "DONE";
 			}
@@ -306,16 +307,19 @@ function NDTjs(server, port, path, callbacks) {
 	
 	this.ndt_coordinator = function() {
 
-		var sock = new WebSocket("ws://" + _this.server + ":" + _this.port + _this.path, 'ndt');
-		sock.binaryType = 'arraybuffer';
-	
-		var state = "",
+		var sock,
+			state = "",
 			active_test,
 			tests_to_run = [];
 	
+		_this.log_msg('Test started.  Waiting for connection to server...');
+		_this.callbacks['onstart']('mlab2.nuq0t');
+
+		sock = new WebSocket("ws://" + _this.server + ":" + _this.server_port + _this.server_path, 'ndt');
+		sock.binaryType = 'arraybuffer';
 	
 		sock.onopen = function() {
-			_this.log_msg("OPENED CONNECTION");
+			_this.log_msg("OPENED CONNECTION on port " + _this.server_port);
 			// Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
 			// open server sockets, which makes those tests impossible, because they
 			// require the server to open a connection to a port on the client.
@@ -323,16 +327,14 @@ function NDTjs(server, port, path, callbacks) {
 			state = "LOGIN_SENT";
 		}
 	
-		//function on_message(message) {
 		sock.onmessage = function(e) {
 	
-			//var message = new Uint8Array(e.data)
-			var message = _this.parse_ndt_msg(e.data);
-	
-			var type = message[0],
+			var message = _this.parse_ndt_msg(e.data),
+				type = message[0],
 				body = JSON.parse(message[3]),
-				i,
-				tests;
+				tests,
+				message;
+
 			_this.log_msg("type = " + type + " (" + _this.msg_names[type] + ") body = '" + body.msg + "'");
 			if (active_test === undefined && tests_to_run.length > 0) {
 				active_test = tests_to_run.pop();
@@ -354,7 +356,7 @@ function NDTjs(server, port, path, callbacks) {
 					if (body.msg === "9990") {	  // special keepalive message
 						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""), { binary: true, mask: true });
 					} else if (body.msg === "9977") {	 // Test failed
-						_this.die("server terminated test with SRV_QUEUE 9977");
+						_this.die("Server terminated test with SRV_QUEUE 9977");
 					}
 					_this.log_msg("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
 				} else if (type === _this.msg_names.indexOf('MSG_LOGIN')) {
@@ -365,7 +367,7 @@ function NDTjs(server, port, path, callbacks) {
 				}
 			} else if (state === "WAIT_FOR_TEST_IDS" && type === _this.msg_names.indexOf('MSG_LOGIN')) {
 				tests = body.msg.split(" ");
-				for (i = tests.length - 1; i >= 0; i -= 1) {
+				for (var i = tests.length - 1; i >= 0; i -= 1) {
 					if (tests[i] === "2") {
 						tests_to_run.push(_this.ndt_c2s_test());
 					} else if (tests[i] === "4") {
@@ -382,7 +384,7 @@ function NDTjs(server, port, path, callbacks) {
 			} else if (state === "WAIT_FOR_MSG_RESULTS" && type === _this.msg_names.indexOf('MSG_LOGOUT')) {
 				sock.close();
 				_this.callbacks['onchange']('finished_all');
-				_this.callbacks['oncompletion']();
+				_this.callbacks['onfinish']();
 				_this.log_msg("TESTS FINISHED SUCCESSFULLY!");
 			} else {
 				_this.die("Didn't know what to do with message type %d in state %s", type, state);
