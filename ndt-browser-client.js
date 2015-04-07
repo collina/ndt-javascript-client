@@ -17,6 +17,7 @@ function NDTjs(server, port, path, callbacks) {
 	this.server_path = path;
 	this.c2s_rate;
 	this.s2c_rate;
+	this.err_msg;
 
 	// A list of web100 variable values that we want to capture from the server
 	// output.  The name of the variable below must be identical to the
@@ -58,10 +59,6 @@ function NDTjs(server, port, path, callbacks) {
 		"MSG_EXTENDED_LOGIN"
 	];
 	
-	// A helper function that prints an error message and crashes things.
-	this.die = function(a1, a2, a3, a4) {
-		_this.log_msg('DIED: '.concat(Array.prototype.slice.call(arguments)));
-	}
 	
 	// Makes a login message suitable for sending to the server.  The login
 	// messages specifies the tests to be run.
@@ -145,7 +142,9 @@ function NDTjs(server, port, path, callbacks) {
 				_this.log_msg("ndt_meta_test is done");
 				return "DONE";
 			}
-			_this.die("Bad state and message combo for META test: ", state, type, body.msg);
+			_this.err_msg = "Bad state and message combo for META test: " + state + ", " + type + ", " + body.msg;
+			_this.log_msg(_this.err_msg);
+			_this.callbacks['onerror'](_this.err_msg);
 		};
 	}
 	
@@ -193,8 +192,9 @@ function NDTjs(server, port, path, callbacks) {
 				}
 
 				test_connection.onerror = function(e) {
-					var err = _this.parse_ndt_msg(e.data);
-					_this.die(err);
+					_this.err_msg = _this.parse_ndt_msg(e.data)[3].msg;
+					_this.log_msg(_this.err_msg);
+					_this.callbacks['onerror'](_this.err_msg);
 				}
 
 				state = "WAIT_FOR_TEST_START";
@@ -235,7 +235,7 @@ function NDTjs(server, port, path, callbacks) {
 				_this.log_msg("Test is over! " +  body.msg);
 				return "DONE";
 			}
-			_this.die("S2C: State = " + state + " type = " + type + "(" + msg_names[type] + ") message = ", body);
+			_this.log_msg("S2C: State = " + state + " type = " + type + "(" + msg_names[type] + ") message = ", body);
 		};
 	}
 	
@@ -300,7 +300,7 @@ function NDTjs(server, port, path, callbacks) {
 				_this.log_msg("C2S rate calculated by client: " + our_c2s_rate);
 				return "DONE";
 			}
-			_this.die("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
+			_this.log_msg("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
 		};
 	}
 	
@@ -332,8 +332,7 @@ function NDTjs(server, port, path, callbacks) {
 			var message = _this.parse_ndt_msg(e.data),
 				type = message[0],
 				body = JSON.parse(message[3]),
-				tests,
-				message;
+				tests;
 
 			_this.log_msg("type = " + type + " (" + _this.msg_names[type] + ") body = '" + body.msg + "'");
 			if (active_test === undefined && tests_to_run.length > 0) {
@@ -356,14 +355,18 @@ function NDTjs(server, port, path, callbacks) {
 					if (body.msg === "9990") {	  // special keepalive message
 						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""), { binary: true, mask: true });
 					} else if (body.msg === "9977") {	 // Test failed
-						_this.die("Server terminated test with SRV_QUEUE 9977");
+						_this.err_msg = "Server terminated test with SRV_QUEUE 9977";
+						_this.log_msg(_this.err_msg);
+						_this.callbacks['onerror'](_this.err_msg);
 					}
-					_this.log_msg("Got SRV_QUEUE.    Ignoring and waiting for MSG_LOGIN");
+					_this.log_msg("Got SRV_QUEUE. Ignoring and waiting for MSG_LOGIN");
 				} else if (type === _this.msg_names.indexOf('MSG_LOGIN')) {
-					if (body.msg[0] !== "v") { die("Bad msg '%s'", body.msg); }
+					if (body.msg[0] !== "v") { _this.log_msg("Bad msg " + body.msg); }
 					state = "WAIT_FOR_TEST_IDS";
 				} else {
-					_this.die("Bad type when we wanted a srv_queue or msg_login ({%d, %d} vs %d)", SRV_QUEUE, MSG_LOGIN, message);
+					_this.err_msg = "Expected type 1 (SRV_QUEUE) or 2 (MSG_LOGIN) but got " + type + " (" + _this.msg_names[type] + ")";
+					_this.log_msg(_this.err_msg);
+					_this.callbacks['onerror'](_this.err_msg);
 				}
 			} else if (state === "WAIT_FOR_TEST_IDS" && type === _this.msg_names.indexOf('MSG_LOGIN')) {
 				tests = body.msg.split(" ");
@@ -375,7 +378,9 @@ function NDTjs(server, port, path, callbacks) {
 					} else if (tests[i] === "32") {
 						tests_to_run.push(_this.ndt_meta_test(sock));
 					} else if (tests[i] !== '') {
-						_this.die("Unknown test type: %d", tests[i], tests, body.msg);
+						_this.err_msg = "Unknown test type: " + tests[i];
+						_this.log_msg(_this.err_msg);
+						_this.callbacks['onerror'](_this.err_msg);
 					}
 				}
 				state = "WAIT_FOR_MSG_RESULTS";
@@ -387,13 +392,16 @@ function NDTjs(server, port, path, callbacks) {
 				_this.callbacks['onfinish']();
 				_this.log_msg("TESTS FINISHED SUCCESSFULLY!");
 			} else {
-				_this.die("Didn't know what to do with message type %d in state %s", type, state);
+				_this.err_msg = "Didn't know what to do with message type " + type + " in state " + state;
+				_this.log_msg(_this.err_msg);
+				_this.callbacks['onerror'](_this.err_msg);
 			}
 		}
 	
-		sock.onerror = function (e) {
-			var err = _this.parse_ndt_msg(e.data);
-			_this.die(err);
+		sock.onerror = function(e) {
+			_this.err_msg = _this.parse_ndt_msg(e.data)[3].msg;
+			_this.log_msg(_this.err_msg);
+			_this.callbacks['onerror'](_this.err_msg);
 		};
 	
 	}
