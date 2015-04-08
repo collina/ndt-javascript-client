@@ -199,13 +199,15 @@ function NDTjs(server, port, path, callbacks) {
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_FIRST_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
+				_this.log_msg('Got message: ' + JSON.stringify(body));
 				state = "WAIT_FOR_TEST_MSG_OR_TEST_FINISH";
 				if (test_end === undefined) {
 					test_end = Date.now() / 1000;
 				}
 				// Calculation per NDT spec
 				_this.s2c_rate = 8 * received_bytes / 1000 / (test_end - test_start);
-				_this.log_msg("S2C rate: " + _this.s2c_rate);
+				_this.log_msg("S2C rate calculated by client: " + _this.s2c_rate);
+				_this.log_msg("S2C rate calculated by server: " + body.ThroughputValue);
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
 					binary: true,
 					mask: true
