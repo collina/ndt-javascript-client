@@ -313,7 +313,7 @@ function NDTjs(server, port, path, callbacks) {
 			tests_to_run = [];
 	
 		_this.log_msg('Test started.  Waiting for connection to server...');
-		_this.callbacks['onstart']('mlab2.nuq0t');
+		_this.callbacks['onstart'](_this.server);
 
 		sock = new WebSocket("ws://" + _this.server + ":" + _this.server_port + _this.server_path, 'ndt');
 		sock.binaryType = 'arraybuffer';
