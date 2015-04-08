@@ -59,29 +59,22 @@ function NDTjs(server, port, path, callbacks) {
 		"MSG_EXTENDED_LOGIN"
 	];
 	
-	
 	// Makes a login message suitable for sending to the server.  The login
 	// messages specifies the tests to be run.
 	this.make_login_msg = function(desired_tests) {
+		// We must support TEST_STATUS (16) as a 3.5.5+ client, so we make sure test 16 is desired.
 		var i = 0,
-			msg = 'XXX { "msg": "Xv3.5.5" }',
-			data = new Uint8Array(msg.length);
-
-		data[0] = this.msg_names.indexOf('MSG_EXTENDED_LOGIN'); // MSG_EXTENDED_LOGIN
+			msg = 'XXX { "msg": "v3.5.5", "tests": "' + (desired_tests | 16) + '" }',
+		data = new Uint8Array(msg.length);
+		data[0] = _this.msg_names.indexOf('MSG_EXTENDED_LOGIN');
 		data[1] = 0;  // Two bytes to represent packet length
 		data[2] = msg.length - 3;
 		for (i = 3; i < msg.length; i += 1) {
-			if (msg.charAt(i) === 'X') {
-				// The mid-message X specifies the tests to run.  We must support
-				// TEST_STATUS (16) as a 3.5.5+ client
-				data[i] = desired_tests | 16;
-			} else {
-				data[i] = msg.charCodeAt(i);
-			}
+			data[i] = msg.charCodeAt(i);
 		}
 		return data;
 	}
-	
+
 	// A generic message creation system.  The output is an array of bytes
 	// suitable for sending on a binary websocket.
 	this.make_ndt_msg = function(type, msg) {
