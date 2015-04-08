@@ -51,9 +51,9 @@ function NDTd3_on_pageload() {
 
 }
 
-function NDTd3_on_start(mlab_site) {
+function NDTd3_on_start(server) {
 	d3.select('text.status').text('Connecting');	
-	d3.select('text.information').text('Mountain View (' + mlab_site + ')');	
+	d3.select('text.information').text('(' + server.replace('.measurement-lab.org','') + ')');	
 }
 
 function NDTd3_on_click() {
