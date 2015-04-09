@@ -130,9 +130,8 @@ function NDTjs(server, port, path, callbacks) {
 				_this.log_msg("ndt_meta_test is done");
 				return true;
 			}
-			_this.err_msg = "Bad state and message combo for META test: " + state + ", " + type + ", " + body.msg;
-			_this.log_msg(_this.err_msg);
-			_this.callbacks['onerror'](_this.err_msg);
+			error_message = "Bad state and message combo for META test: " + state + ", " + type + ", " + body.msg;
+            throw _this.TestFailureException(error_message);
 		};
 	}
 	
@@ -180,8 +179,8 @@ function NDTjs(server, port, path, callbacks) {
 				}
 
 				test_connection.onerror = function(e) {
-					err_msg = _this.parse_ndt_msg(e.data)[3].msg;
-                    throw _this.ConnectionException(err_msg);
+					error_message = _this.parse_ndt_msg(e.data)[3].msg;
+                    throw _this.ConnectionException(error_message);
 				}
 
 				state = "WAIT_FOR_TEST_START";
@@ -348,9 +347,8 @@ function NDTjs(server, port, path, callbacks) {
 					if (body.msg[0] !== "v") { _this.log_msg("Bad msg " + body.msg); }
 					state = "WAIT_FOR_TEST_IDS";
 				} else {
-					_this.err_msg = "Expected type 1 (SRV_QUEUE) or 2 (MSG_LOGIN) but got " + type + " (" + _this.msg_names[type] + ")";
-					_this.log_msg(_this.err_msg);
-					_this.callbacks['onerror'](_this.err_msg);
+					error_message = "Expected type 1 (SRV_QUEUE) or 2 (MSG_LOGIN) but got " + type + " (" + _this.msg_names[type] + ")";
+                    throw _this.TestFailureException(error_message);
 				}
 			} else if (state === "WAIT_FOR_TEST_IDS" && type === _this.msg_names.indexOf('MSG_LOGIN')) {
 				tests = body.msg.split(" ");
@@ -362,9 +360,8 @@ function NDTjs(server, port, path, callbacks) {
 					} else if (tests[i] === "32") {
 						tests_to_run.push(_this.ndt_meta_test(sock));
 					} else if (tests[i] !== '') {
-						_this.err_msg = "Unknown test type: " + tests[i];
-						_this.log_msg(_this.err_msg);
-						_this.callbacks['onerror'](_this.err_msg);
+						error_message = "Unknown test type: " + tests[i];
+                        throw _this.TestFailureException(error_message);
 					}
 				}
 				state = "WAIT_FOR_MSG_RESULTS";
@@ -376,16 +373,14 @@ function NDTjs(server, port, path, callbacks) {
 				_this.callbacks['onfinish']();
 				_this.log_msg("TESTS FINISHED SUCCESSFULLY!");
 			} else {
-				_this.err_msg = "Didn't know what to do with message type " + type + " in state " + state;
-				_this.log_msg(_this.err_msg);
-				_this.callbacks['onerror'](_this.err_msg);
+				error_message = "Didn't know what to do with message type " + type + " in state " + state;
+                throw _this.TestFailureException(error_message);
 			}
 		}
 	
 		sock.onerror = function(e) {
-			_this.err_msg = _this.parse_ndt_msg(e.data)[3].msg;
-			_this.log_msg(_this.err_msg);
-			_this.callbacks['onerror'](_this.err_msg);
+			error_message = _this.parse_ndt_msg(e.data)[3].msg;
+            throw _this.TestFailureException(error_message);
 		};
 	
 	}
@@ -400,9 +395,11 @@ function NDTjs(server, port, path, callbacks) {
 	}
     this.ConnectionException = function(message) {
        NDTjs.log_msg(message)
+       _this.callbacks['onerror'](message);
     }
     this.TestFailureException = function(message) {
        NDTjs.log_msg(message)
+       _this.callbacks['onerror'](message);
     }
 }
 
