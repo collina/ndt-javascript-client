@@ -8,6 +8,7 @@
 
 'use strict';
 
+
 function NDTjs(server, port, path, callbacks) {
 
 	var _this = this;
@@ -106,7 +107,7 @@ function NDTjs(server, port, path, callbacks) {
 
 
 	// Returns a closure that will process all messages for the META NDT test.
-	// The closure will return the string "DONE" when the test is complete and
+	// The closure will return the boolean true when the test is complete and
 	// the closure should no longer be called.
 	this.ndt_meta_test = function(sock) {
 		var state = "WAIT_FOR_TEST_PREPARE";
@@ -114,7 +115,7 @@ function NDTjs(server, port, path, callbacks) {
 			if (state === "WAIT_FOR_TEST_PREPARE" && type === _this.msg_names.indexOf('TEST_PREPARE')) {
 				_this.callbacks['onchange']('preparing_meta');
 				state = "WAIT_FOR_TEST_START";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
 				_this.callbacks['onchange']('running_meta');
@@ -122,12 +123,12 @@ function NDTjs(server, port, path, callbacks) {
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"));
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""));
 				state = "WAIT_FOR_TEST_FINALIZE";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
 				_this.callbacks['onchange']('finished_meta');
 				_this.log_msg("ndt_meta_test is done");
-				return "DONE";
+				return true;
 			}
 			_this.err_msg = "Bad state and message combo for META test: " + state + ", " + type + ", " + body.msg;
 			_this.log_msg(_this.err_msg);
@@ -137,7 +138,7 @@ function NDTjs(server, port, path, callbacks) {
 	
 
 	// Returns a closure that will process all messages for the S2C NDT test.
-	// The closure will return the string "DONE" when the test is complete and
+	// The closure will return the boolean true when the test is complete and
 	// the closure should no longer be called.
 	this.ndt_s2c_test = function(sock) {
 		var state = "WAIT_FOR_TEST_PREPARE",
@@ -179,18 +180,17 @@ function NDTjs(server, port, path, callbacks) {
 				}
 
 				test_connection.onerror = function(e) {
-					_this.err_msg = _this.parse_ndt_msg(e.data)[3].msg;
-					_this.log_msg(_this.err_msg);
-					_this.callbacks['onerror'](_this.err_msg);
+					err_msg = _this.parse_ndt_msg(e.data)[3].msg;
+                    throw _this.ConnectionException(err_msg);
 				}
 
 				state = "WAIT_FOR_TEST_START";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
 				_this.callbacks['onchange']('running_s2c');
 				state = "WAIT_FOR_FIRST_TEST_MSG";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_FIRST_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
 				_this.log_msg('Got message: ' + JSON.stringify(body));
@@ -203,7 +203,7 @@ function NDTjs(server, port, path, callbacks) {
 				_this.log_msg("S2C rate calculated by client: " + _this.s2c_rate);
 				_this.log_msg("S2C rate calculated by server: " + body.ThroughputValue);
 				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)));
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_MSG')) {
 				_this.log_msg("Got results: " +  body.msg);
@@ -214,12 +214,12 @@ function NDTjs(server, port, path, callbacks) {
 						_this.log_msg('Set ' + web100var + ' to ' + _this.web100vars[web100var]);
 					}
 				}
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
 				_this.callbacks['onchange']('fnished_s2c');
 				_this.log_msg("Test is over! " +  body.msg);
-				return "DONE";
+				return true;
 			}
 			_this.log_msg("S2C: State = " + state + " type = " + type + "(" + msg_names[type] + ") message = ", body);
 		};
@@ -264,27 +264,27 @@ function NDTjs(server, port, path, callbacks) {
 				test_connection = new WebSocket("ws://" + _this.server + ":" + server_port + _this.server_path, 'c2s');
 				test_connection.binaryType = 'arraybuffer';
 				state = "WAIT_FOR_TEST_START";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
 				_this.callbacks['onchange']('running_c2s');
 				test_start = Date.now() / 1000;
 				keep_sending_data();
 				state = "WAIT_FOR_TEST_MSG";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_MSG" && type === _this.msg_names.indexOf('TEST_MSG')) {
 				_this.c2s_rate = body.msg;
 				_this.log_msg("C2S rate calculated by server: " + _this.c2s_rate);
 				state = "WAIT_FOR_TEST_FINALIZE";
-				return "KEEP GOING";
+				return false;
 			}
 			if (state === "WAIT_FOR_TEST_FINALIZE" && type === _this.msg_names.indexOf('TEST_FINALIZE')) {
 				_this.callbacks['onchange']('finished_c2s');
-				state = "DONE";
+				state = true;
 				our_c2s_rate = 8 * transmitted_bytes / 1000 / (test_end - test_start);
 				_this.log_msg("C2S rate calculated by client: " + our_c2s_rate);
-				return "DONE";
+				return true;
 			}
 			_this.log_msg("C2S: State = " + state + " type = " + type + "(" + msg_name[type] + ") message = ", body);
 		};
@@ -327,7 +327,7 @@ function NDTjs(server, port, path, callbacks) {
 			if (active_test !== undefined) {
 				// Pass the message to the sub-test
 				_this.log_msg("Calling a subtest");
-				if (active_test(type, body) === "DONE") {
+				if (active_test(type, body) === true) {
 					active_test = undefined;
 					_this.log_msg("Subtest complete");
 				}
@@ -341,9 +341,7 @@ function NDTjs(server, port, path, callbacks) {
 					if (body.msg === "9990") {	  // special keepalive message
 						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""));
 					} else if (body.msg === "9977") {	 // Test failed
-						_this.err_msg = "Server terminated test with SRV_QUEUE 9977";
-						_this.log_msg(_this.err_msg);
-						_this.callbacks['onerror'](_this.err_msg);
+                        throw _this.TestFailureException("Server terminated test with SRV_QUEUE 9977");
 					}
 					_this.log_msg("Got SRV_QUEUE. Ignoring and waiting for MSG_LOGIN");
 				} else if (type === _this.msg_names.indexOf('MSG_LOGIN')) {
@@ -400,5 +398,12 @@ function NDTjs(server, port, path, callbacks) {
 		console.log(msg);
 	
 	}
-
+    this.ConnectionException = function(message) {
+       NDTjs.log_msg(message)
+    }
+    this.TestFailureException = function(message) {
+       NDTjs.log_msg(message)
+    }
 }
+
+
