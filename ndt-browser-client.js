@@ -119,14 +119,8 @@ function NDTjs(server, port, path, callbacks) {
 			if (state === "WAIT_FOR_TEST_START" && type === _this.msg_names.indexOf('TEST_START')) {
 				_this.callbacks['onchange']('running_meta');
 				// Send one piece of meta data and then an empty meta data packet
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"), {
-					binary: true,
-					mask: true
-				});
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""), {
-					binary: true,
-					mask: true
-				});
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), "client.os.name:CLIWebsockets"));
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), ""));
 				state = "WAIT_FOR_TEST_FINALIZE";
 				return "KEEP GOING";
 			}
@@ -208,10 +202,7 @@ function NDTjs(server, port, path, callbacks) {
 				_this.s2c_rate = 8 * received_bytes / 1000 / (test_end - test_start);
 				_this.log_msg("S2C rate calculated by client: " + _this.s2c_rate);
 				_this.log_msg("S2C rate calculated by server: " + body.ThroughputValue);
-				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)), {
-					binary: true,
-					mask: true
-				});
+				sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('TEST_MSG'), String(_this.s2c_rate)));
 				return "KEEP GOING";
 			}
 			if (state === "WAIT_FOR_TEST_MSG_OR_TEST_FINISH" && type === _this.msg_names.indexOf('TEST_MSG')) {
@@ -318,7 +309,7 @@ function NDTjs(server, port, path, callbacks) {
 			// Sign up for every test except for TEST_MID and TEST_SFW - browsers can't
 			// open server sockets, which makes those tests impossible, because they
 			// require the server to open a connection to a port on the client.
-			sock.send(_this.make_login_msg(2 | 4 | 32), { binary: true, mask: true });
+			sock.send(_this.make_login_msg(2 | 4 | 32));
 			state = "LOGIN_SENT";
 		}
 	
@@ -348,7 +339,7 @@ function NDTjs(server, port, path, callbacks) {
 				// Response to NDT_LOGIN should be SRV_QUEUE messages until we get SRV_QUEUE("0")
 				if (type === _this.msg_names.indexOf('SRV_QUEUE')) {
 					if (body.msg === "9990") {	  // special keepalive message
-						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""), { binary: true, mask: true });
+						sock.send(_this.make_ndt_msg(_this.msg_names.indexOf('MSG_WAITING'), ""));
 					} else if (body.msg === "9977") {	 // Test failed
 						_this.err_msg = "Server terminated test with SRV_QUEUE 9977";
 						_this.log_msg(_this.err_msg);
